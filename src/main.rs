@@ -21,6 +21,54 @@ struct CompressedBoard {
 
 // }
 
+//const so that compiler can inline the recusion
+const DEPTH:usize = 6;
+
+#[inline]
+fn calc_score(board:CompressedBoard) {
+    //  x x
+    // x x x
+    //x x x x
+    // x x x 
+
+    //all of this is only 100 asm instructions without any branches/jumps on opt-level=3
+    //weird mask to_array then transmute neccesary because it is not guaranteed that the mask will be booleans.
+    // to_array() -> [bool; LANES], so this forces the compiler to make the simd_eq be 1 for each lane if true, and 0 otherwise.
+    let (row_0, row_1, row_2, row_3) = unsafe {
+        let mut row_0:u8x16 = u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(7)).simd_eq(Simd::splat(0)).to_array()));
+        row_0 = row_0 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(14)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(1));
+        row_0 = row_0 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(28)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(2));
+        row_0 = row_0 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(56)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(3));
+        row_0 = row_0 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(112)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(4));
+        row_0 = row_0 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(224)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(5));
+        row_0 = row_0 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(192)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(6));
+
+        let mut row_1:u8x16 = u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(15)).simd_eq(Simd::splat(6)).to_array()));
+        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(30)).simd_eq(Simd::splat(12)).to_array())) << Simd::splat(1));
+        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(60)).simd_eq(Simd::splat(24)).to_array())) << Simd::splat(2));
+        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(120)).simd_eq(Simd::splat(48)).to_array())) << Simd::splat(3));
+        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(240)).simd_eq(Simd::splat(96)).to_array())) << Simd::splat(4));
+        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(224)).simd_eq(Simd::splat(224)).to_array())) << Simd::splat(5));
+
+        let mut row_2:u8x16 = u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(7)).simd_eq(Simd::splat(2)).to_array()));
+        row_2 = row_2 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(14)).simd_eq(Simd::splat(4)).to_array())) << Simd::splat(1));
+        row_2 = row_2 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(28)).simd_eq(Simd::splat(4)).to_array())) << Simd::splat(2));
+        row_2 = row_2 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(56)).simd_eq(Simd::splat(4)).to_array())) << Simd::splat(3));
+        row_2 = row_2 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(112)).simd_eq(Simd::splat(4)).to_array())) << Simd::splat(4));
+        row_2 = row_2 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(224)).simd_eq(Simd::splat(4)).to_array())) << Simd::splat(5));
+        row_2 = row_2 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(192)).simd_eq(Simd::splat(4)).to_array())) << Simd::splat(6));
+
+        let mut row_3:u8x16 = u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(3)).simd_eq(Simd::splat(0)).to_array()));
+        row_3 = row_3 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(6)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(1));
+        row_3 = row_3 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(12)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(2));
+        row_3 = row_3 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(24)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(3));
+        row_3 = row_3 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(48)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(4));
+        row_3 = row_3 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(96)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(5));
+
+        (row_0,row_1,row_2,row_3)
+    };
+}
+
 
 #[inline]
 //finds if there is a colored pixel at the top of one of the columns
