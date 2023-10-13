@@ -2,34 +2,85 @@
 #![feature(const_trait_impl)]
 // #![allow(arithmetic_overflow)] //not necessary bc its not UB for simd
 
-use std::simd::*;
+use std::{simd::*, fmt::Display};
 
 //even though heigths can be represented by nibbles, it is more useful for each one to be a byte for simd swizzling
 //bottom row is all white
+#[derive(Debug,Clone,Copy)]
 struct CompressedBoard {
     filled:u8x16,
     colored:u8x16,
     heights:u64,
 }
 
+impl Display for CompressedBoard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let filled:u128 = unsafe { std::mem::transmute(self.filled) };
+        let colored:u128 = unsafe { std::mem::transmute(self.colored) };
+
+        for y in (1..12).rev() {
+            let s = if y%2==1 { 
+                format!(" {} {} {} {} {} {} \n",
+                    print_helper(colored, filled, y, 0),
+                    print_helper(colored, filled, y, 1),
+                    print_helper(colored, filled, y, 2),
+                    print_helper(colored, filled, y, 3),
+                    print_helper(colored, filled, y, 4),
+                    print_helper(colored, filled, y, 5),
+                )
+            } else {
+                    format!("{} {} {} {} {} {} {} \n",
+                        print_helper(colored, filled, y, 0),
+                        print_helper(colored, filled, y, 1),
+                        print_helper(colored, filled, y, 2),
+                        print_helper(colored, filled, y, 3),
+                        print_helper(colored, filled, y, 4),
+                        print_helper(colored, filled, y, 5),
+                        print_helper(colored, filled, y, 6),
+                    )
+            };
+            f.write_str(&s);
+        }
+        f.write_str("==============");
+        f.write_str(&format!("{:16x}",self.heights))
+    }
+}
+
+fn print_helper(colored:u128,filled:u128,y:u64,x:u64) -> &'static str {
+    if colored & (1<<(y*8 + x)) != 0 {"⬢"} else if filled & (1<<(y*8 + x)) != 0 {"⬡"} else { "_"} 
+}
+
+fn new_board() -> CompressedBoard {
+    return CompressedBoard {
+        filled:u8x16::from_array([255,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]),
+        colored:u8x16::splat(0),
+        heights:u64::from_ne_bytes([1,1,1,1,1,1,1,1])
+    };
+}
+
 // const guaranteed_mosaic_and:u32 =  0b00_00_00_00__00_00_00_00___00_00_00_00__01_01_01_01;
 // const guaranteed_mosaic_not:u32 =  0b00_00_00_10__11_11_11_10___00_00_00_00__10_10_10_10;
 
-// fn placeable(board1:CompressedBoard,board2:CompressedBoard) -> u8 {
-//     let heights:u8x16 = unsafe { std::mem::transmute_copy(&[board1.heights,board2.heights]) };
-//     let shifts = u8x16::from_array([1,2,3]) - (heights & u8x16::from_array([0,0,0,0, 1,1,1,1, 0,0,0,0, 1,1,1,1]));
-
-// }
+#[inline]
+fn placeable(board1:CompressedBoard,board2:CompressedBoard) -> u8x16 {
+    let mut heights:u8x16 = unsafe { std::mem::transmute_copy(&[board1.heights,board2.heights]) };
+    heights += u8x16::from_array([0,0,0,0,0,0,0,0,16,16,16,16,16,16,16,16]);
+    let mut a:u8x16 = vtbl_2(board1.filled, board2.filled, heights);
+    let shifts = (heights & Simd::splat(1)) * Simd::splat(2);
+    unsafe { println!("{:0b}, {:0b}", std::mem::transmute::<u8x16,[u64; 2]>(a)[0], std::mem::transmute::<u8x16,[u64; 2]>(a)[1]) };
+    a = (a & (u8x16::from_array([2,4,8,16,32,64,128,0,2,4,8,16,32,64,128,0]) >> shifts)) << shifts;
+    a
+}
 
 //const so that compiler can inline the recusion
 const DEPTH:usize = 6;
 
 #[inline]
 fn calc_score(board:CompressedBoard) {
-    //  x x
-    // x x x
-    //x x x x
-    // x x x 
+    //  x x //6
+    // x x x //7
+    //x x x x //6
+    // x x x //7
 
     //all of this is only 100 asm instructions without any branches/jumps on opt-level=3
     //weird mask to_array then transmute neccesary because it is not guaranteed that the mask will be booleans.
@@ -43,12 +94,13 @@ fn calc_score(board:CompressedBoard) {
         row_0 = row_0 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(224)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(5));
         row_0 = row_0 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(192)).simd_eq(Simd::splat(0)).to_array())) << Simd::splat(6));
 
-        let mut row_1:u8x16 = u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(15)).simd_eq(Simd::splat(6)).to_array()));
-        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(30)).simd_eq(Simd::splat(12)).to_array())) << Simd::splat(1));
-        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(60)).simd_eq(Simd::splat(24)).to_array())) << Simd::splat(2));
-        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(120)).simd_eq(Simd::splat(48)).to_array())) << Simd::splat(3));
-        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(240)).simd_eq(Simd::splat(96)).to_array())) << Simd::splat(4));
-        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(224)).simd_eq(Simd::splat(224)).to_array())) << Simd::splat(5));
+        let mut row_1:u8x16 = u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(7)).simd_eq(Simd::splat(3)).to_array()));
+        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(15)).simd_eq(Simd::splat(6)).to_array())) << Simd::splat(1));
+        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(30)).simd_eq(Simd::splat(12)).to_array())) << Simd::splat(2));
+        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(60)).simd_eq(Simd::splat(24)).to_array())) << Simd::splat(3));
+        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(120)).simd_eq(Simd::splat(48)).to_array())) << Simd::splat(4));
+        row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(240)).simd_eq(Simd::splat(96)).to_array())) << Simd::splat(5));
+        // row_1 = row_1 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(224)).simd_eq(Simd::splat(224)).to_array())) << Simd::splat(5));
 
         let mut row_2:u8x16 = u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(7)).simd_eq(Simd::splat(2)).to_array()));
         row_2 = row_2 | (u8x16::from_array(std::mem::transmute((board.colored & Simd::splat(14)).simd_eq(Simd::splat(4)).to_array())) << Simd::splat(1));
@@ -67,8 +119,26 @@ fn calc_score(board:CompressedBoard) {
 
         (row_0,row_1,row_2,row_3)
     };
+
+    let mosaics = row_0 & 
+    row_1.swizzle_dyn(u8x16::from_array([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])) & 
+    row_2.swizzle_dyn(u8x16::from_array([2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17])) &
+    row_3.swizzle_dyn(u8x16::from_array([3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]));
 }
 
+//not sure which of these is faster, 2nd takes less asm instructions but it also has to do a simd table lookup
+#[inline]
+fn insert(board:&mut CompressedBoard,x:u64,colored:u128) {
+    let idx = (board.heights >> (x*8)) & 0xFF;
+    let shift = (x as u128+idx as u128*8);
+    unsafe {
+        board.filled += std::mem::transmute::<u128,Simd<u8,16>>(1u128 << shift); 
+        board.colored += std::mem::transmute::<u128,Simd<u8,16>>(colored << shift );
+    }
+
+    board.heights += 1 << (x*8);
+
+} 
 
 #[inline]
 //finds if there is a colored pixel at the top of one of the columns
@@ -134,10 +204,26 @@ fn vtbl_2(v0:u8x16, v1:u8x16, idxs:u8x16) -> u8x16 {
     )))]
     return {
         let swizzle_idxs:u8x16 = idxs + u8x16::from_array([0,0,0,0,0,0,0,0,128,128,128,128,128,128,128,128]);
-        let swizzle_idxs_2:u8x16 = idxs + u8x16::from_array([128,128,128,128,128,128,128,128, 0,0,0,0,0,0,0,0]);
+        let mut swizzle_idxs_2:u8x16 = idxs + u8x16::from_array([128,128,128,128,128,128,128,128, 0,0,0,0,0,0,0,0]);
+        swizzle_idxs_2 -= Simd::splat(16);
         v0.swizzle_dyn(swizzle_idxs) | v1.swizzle_dyn(swizzle_idxs_2)
     };
 }
 fn main() {
-    println!("Hello, world!");
+
+    let mut board = new_board();
+
+    insert(&mut board, 3, 0);
+
+    let p:[[u8; 8]; 2]= unsafe { std::mem::transmute(placeable(board,board)) };
+
+    for (x,i) in p[0].into_iter().enumerate() {
+        println!("{}",i);
+        if i!=0 {
+            let mut new = board;
+            insert(&mut new, x as u64, 1);
+            println!("{:#}",new);
+        }
+    }
+    // println!("{:#}",board);
 }
